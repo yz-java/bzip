@@ -191,7 +191,7 @@ int zip(string srcDir, string zipFIlePath) {
             return -1;
         }
         zip_fileinfo zFileInfo = { 0 };
-        int ret = zipOpenNewFileInZip(zFile, srcDir.c_str(), &zFileInfo, NULL, 0, NULL, 0, NULL, 0, 0);
+        int ret = zipOpenNewFileInZip(zFile, srcDir.c_str(), &zFileInfo, NULL, 0, NULL, 0, NULL, Z_DEFLATED, Z_BEST_COMPRESSION);
         if (ret != ZIP_OK) {
             cout<<"openfile in zip failed"<<endl;
             zipClose(zFile, NULL);
@@ -222,7 +222,7 @@ int zip(string srcDir, string zipFIlePath) {
         vector<string>::iterator itF = vFiles.begin();
         for (;itF != vFiles.end(); ++itF) {
             zip_fileinfo zFileInfo = { 0 };
-            int ret = zipOpenNewFileInZip(zFile,itF->c_str(),&zFileInfo,NULL,0,NULL,0,NULL,0,0);
+            int ret = zipOpenNewFileInZip(zFile,itF->c_str(),&zFileInfo,NULL,0,NULL,0,NULL,Z_DEFLATED, Z_BEST_COMPRESSION);
             if (ret != ZIP_OK) {
                 cout<<"openfile in zip failed"<<endl;
                 zipClose(zFile,NULL);
@@ -286,9 +286,3 @@ int unzip(string zipFilePath, string targetDir){
     unzClose(zfile);
     return 0;
 }
-
-// int main(){
-//     // unzip("/Users/yangzhao/Downloads/ios_pkg/Runner.ipa","/Users/yangzhao/Downloads/ios_pkg");
-//     zip("/Users/yangzhao/Downloads/ios_pkg/Payload","/Users/yangzhao/Downloads/ios_pkg/test1.ipa");
-// }
-    
