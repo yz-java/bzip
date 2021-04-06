@@ -1,5 +1,4 @@
 #include "bzip.h"
-
 #define MAX_PATH 512
 
 #ifdef WIN32
@@ -67,7 +66,6 @@ int extract_currentfile(unzFile zfile,char * extractdirectory)
     }
     if (*fileName_WithoutPath == '\0')
     {
-        cout << "[INFO] " << "成功读取当前目录:" << fileName_WithPath << endl;
         cout << "[INFO] " << "开始创建目录:" << fileName_WithPath << endl;
         //创建目录
         int err = createDirectory(fileName_WithPath);
@@ -80,31 +78,46 @@ int extract_currentfile(unzFile zfile,char * extractdirectory)
     }
     else
     {
-        cout << "[INFO] " << "成功读取当前文件:" 
-        << fileName_WithoutPath << endl;
-        cout << "[INFO] " << "开始解压当前文件:" 
-        << fileName_WithoutPath << endl;
+        cout << "[INFO] " << "开始解压当前文件:" << fileName_WithoutPath << endl;
+
         //打开当前文件
         if (UNZ_OK != unzOpenCurrentFile(zfile))
         {
             //错误处理信息  
-            cout <<"[ERROR] "<< "打开当前文件" << 
-            fileName_WithoutPath << "失败！" << endl;
+            cout <<"[ERROR] "<< "打开当前文件" << fileName_WithoutPath << "失败！" << endl;
         }
+        string parentPath;
+        #ifdef WIN32
+            string tp=fileName_WithPath;
+            size_t index = tp.find_last_of("\\");
+            if(index<0){
+                index = tp.find_last_of("/");
+            }
+            parentPath=tp.substr(0,index+1);
+        #else
+            string tp=fileName_WithPath;
+            size_t index = tp.find_last_of("/");
+            parentPath=tp.substr(0,index+1);
+        #endif // WIN32
+        createDirectory(parentPath);
+        
+
         //定义一个fstream对象，用来写入文件
         fstream file;
-        file.open(fileName_WithPath, ios_base::out | ios_base::binary);
+        file.open(fileName_WithPath, ios::out | ios::binary);
+        if (!file.is_open())
+        {
+            cout << fileName_WithPath << "打开失败" << endl;
+        }
+        
         ZPOS64_T fileLength = zFileInfo.uncompressed_size;
         //定义一个字符串变量fileData，读取到的文件内容将保存在该变量中
         char *fileData = new char[fileLength];
         //解压缩文件  
         ZPOS64_T err = unzReadCurrentFile(zfile, (voidp)fileData, fileLength);
         if (err<0)
-            cout << "[ERROR] " << "解压当前文件" 
-            << fileName_WithoutPath << "失败！" << endl;
-        else
-            cout << "[INFO] " << "解压当前文件"  
-            << fileName_WithoutPath << "成功！" << endl;
+            cout << "[ERROR] " << "解压当前文件" << fileName_WithoutPath << "失败！" << endl;
+
         file.write(fileData, fileLength);
         file.close();
         free(fileData);
@@ -148,6 +161,7 @@ void EnumDirFiles(const string& dirPrefix,const string& dirName,vector<string>& 
         string innerDir = dirNameTmp + pDirEnt->d_name;
         if (fileStat.st_mode & S_IFDIR == S_IFDIR)
         {
+            vFiles.push_back(innerDir+"/");
             EnumDirFiles(dirPrefix,innerDir,vFiles);
             continue;
         }
@@ -162,11 +176,12 @@ void EnumDirFiles(const string& dirPrefix,const string& dirName,vector<string>& 
 //压缩码流
 int WriteInZipFile(zipFile zFile,const string& file)
 {
-    fstream f(file.c_str(),std::ios::binary | std::ios::in);
+    fstream f;
+    f.open(file.c_str(),std::ios::binary | std::ios::in);
     f.seekg(0, std::ios::end);
     long size = f.tellg();
     f.seekg(0, std::ios::beg);
-    if ( size <= 0 )
+    if ( size <= 0 || file.find_last_of("/")==file.length()-1)
     {
         return zipWriteInFileInZip(zFile,NULL,0);
     }
@@ -176,9 +191,8 @@ int WriteInZipFile(zipFile zFile,const string& file)
     delete[] buf;
     return ret;
 }
- 
-//zip 压缩
-int zip(string srcDir, string zipFIlePath) {
+
+int zip(string srcDir, string zipFIlePath,function<void(int totalNum,int currentNum)> zipCallBack){
     if (srcDir.find_last_of("/") == srcDir.length() - 1)
         srcDir = srcDir.substr(0,srcDir.length()-1);
  
@@ -216,12 +230,19 @@ int zip(string srcDir, string zipFIlePath) {
             cout<<"openfile failed"<<endl;
             return -1;
         }
- 
         vector<string> vFiles;
+        vFiles.push_back(dirName+"/");
         EnumDirFiles(dirPrefix, dirName, vFiles);
         vector<string>::iterator itF = vFiles.begin();
+        int totalNum=vFiles.size();
+        int currentNum=0;
         for (;itF != vFiles.end(); ++itF) {
             zip_fileinfo zFileInfo = { 0 };
+            zFileInfo.tmz_date.tm_sec = zFileInfo.tmz_date.tm_min = zFileInfo.tmz_date.tm_hour =
+            zFileInfo.tmz_date.tm_mday = zFileInfo.tmz_date.tm_mon = zFileInfo.tmz_date.tm_year = 0;
+            zFileInfo.dosDate = 0;
+            zFileInfo.internal_fa = 0;
+            zFileInfo.external_fa = 0;
             int ret = zipOpenNewFileInZip(zFile,itF->c_str(),&zFileInfo,NULL,0,NULL,0,NULL,Z_DEFLATED, Z_BEST_COMPRESSION);
             if (ret != ZIP_OK) {
                 cout<<"openfile in zip failed"<<endl;
@@ -234,6 +255,10 @@ int zip(string srcDir, string zipFIlePath) {
                 zipClose(zFile,NULL);
                 return -1;
             }
+            if (zipCallBack!=nullptr){
+                currentNum++;
+                zipCallBack(totalNum,currentNum);
+            }
         }
  
         zipClose(zFile,NULL);
@@ -241,9 +266,14 @@ int zip(string srcDir, string zipFIlePath) {
     }
     return 0;
 }
+ 
+//zip 压缩
+int zip(string srcDir, string zipFIlePath) {
+    
+    return zip(srcDir,zipFIlePath,nullptr);
+}
 
-
-int unzip(string zipFilePath, string targetDir){
+int unzip(string zipFilePath, string targetDir,function<void(int totalNum,int currentNum)> unzipCallBack){
     unzFile zfile;//定义一个unzFile类型的结构体zfile
     //定义zip文件的路径，可以使用相对路径
     //调用unzOpen64()函数打开zip文件
@@ -272,11 +302,16 @@ int unzip(string zipFilePath, string targetDir){
     //循环读取zip包中的文件，
     //在extract_currentfile函数中
     //进行文件解压、创建、写入、保存等操作
+    targetDir+="/";
     for (int i = 0; i < zGlobalInfo.number_entry; i++)
     {
         //extract_currentfile函数的第二个参数指将文件解压到哪里
-        targetDir+="/";
         int err = extract_currentfile(zfile, (char *)targetDir.c_str());
+        
+        if (unzipCallBack!=nullptr){
+            unzipCallBack(zGlobalInfo.number_entry,i+1);
+        }
+
         //关闭当前文件
         unzCloseCurrentFile(zfile);
         //使指针指向下一个文件
@@ -285,4 +320,31 @@ int unzip(string zipFilePath, string targetDir){
     //关闭压缩文件
     unzClose(zfile);
     return 0;
+}
+
+int unzip(string zipFilePath, string targetDir){
+    return unzip(zipFilePath,targetDir,nullptr);
+}
+
+int getZipFileNums(string zipFilePath){
+    unzFile zfile;
+    zfile = unzOpen64(zipFilePath.c_str());
+    if (zfile == NULL)
+    {
+        cout << zipFilePath << "[INFO] 打开压缩文件失败" << endl;
+        return -1;
+    }
+    else
+    {
+        cout << "[INFO] 成功打开压缩文件" << endl;
+    }
+    unz_global_info64 zGlobalInfo;
+    if (UNZ_OK != unzGetGlobalInfo64(zfile, &zGlobalInfo))
+    //使用unzGetGlobalInfo64函数获取zip文件全局信息
+    {
+        cout << "[ERROR] 获取压缩文件全局信息失败" << endl;
+        return -1;
+    }
+    unzClose(zfile);
+    return zGlobalInfo.number_entry;
 }
